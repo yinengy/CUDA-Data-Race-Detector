@@ -50,6 +50,9 @@
 static __managed__ ChannelDev channel_dev;
 static ChannelHost channel_host;
 
+/* synchronization operation counter, updated by the GPU threads */
+__managed__ int syn_ops_counter = 0;
+
 /* receiving thread and its control variables */
 pthread_t recv_thread;
 volatile bool recv_thread_started = false;
@@ -110,7 +113,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         for (auto instr : instrs) {
             if (cnt < instr_begin_interval || cnt >= instr_end_interval ||
                 ((instr->getMemOpType()!=Instr::memOpType::GLOBAL
-                    && instr->getMemOpType()!=Instr::memOpType::SHARED))) {
+                    && instr->getMemOpType()!=Instr::memOpType::SHARED && instr->getMemOpType()!=Instr::memOpType::GENERIC))) {
                 cnt++;
                 continue;
             }
@@ -130,8 +133,18 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             for (int i = 0; i < instr->getNumOperands(); i++) {
                 /* get the operand "i" */
                 const Instr::operand_t *op = instr->getOperand(i);
+                const char *shortOpcode = instr->getOpcodeShort();
 
-                if (op->type == Instr::operandType::MREF) {
+                // to see if it is a synchronization operation
+                bool is_syn_op = strcmp(shortOpcode, "RED") == 0; 
+
+                if (is_syn_op) {
+                    // instrument after the syn op so all thread are ready
+                    // then we can just update the counter by one
+                    nvbit_insert_call(instr, "instrument_syn", IPOINT_AFTER);
+                    nvbit_add_call_arg_const_val64(instr, (uint64_t)&syn_ops_counter);
+                    break; // only instrument once
+                } else if (op->type == Instr::operandType::MREF) {
                     /* insert call to the instrumentation function with its
                      * arguments */
                     nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
@@ -144,8 +157,10 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
                     /* add pointer to channel_dev*/
                     nvbit_add_call_arg_const_val64(instr,
                                                    (uint64_t)&channel_dev);
+                    // TODO: need to consider the case that memOpType is GENERIC
                     nvbit_add_call_arg_const_val32(instr, instr->getMemOpType()==Instr::memOpType::SHARED);
                     nvbit_add_call_arg_const_val32(instr, instr->isLoad());
+                    nvbit_add_call_arg_const_val64(instr, (uint64_t)&syn_ops_counter);
                 }
             }
             cnt++;
@@ -245,16 +260,16 @@ void *recv_thread_fun(void *) {
                 if (ma->is_load) {
                     for (int i = 0; i < 32; i++) {
                         if (ma->addrs[i] == 0) continue;
-                        printf("#ld#%d,%d,%d,%d,%d,%d,0x%016lx\n",
+                        printf("#ld#%d,%d,%d,%d,%d,%d,%d,0x%016lx\n",
                             ma->is_shared_memory,  ma->cta_id_x,
-                            ma->cta_id_y, ma->cta_id_z, ma->warp_id, i, ma->addrs[i]);
+                            ma->cta_id_y, ma->cta_id_z, ma->warp_id, i, ma->SFR_id, ma->addrs[i]);
                     }
                 } else {
                     for (int i = 0; i < 32; i++) {
                         if (ma->addrs[i] == 0) continue;
-                        printf("#st#%d,%d,%d,%d,%d,%d,0x%016lx\n",
+                        printf("#st#%d,%d,%d,%d,%d,%d,%d,0x%016lx\n",
                             ma->is_shared_memory,  ma->cta_id_x,
-                            ma->cta_id_y, ma->cta_id_z, ma->warp_id, i, ma->addrs[i]);
+                            ma->cta_id_y, ma->cta_id_z, ma->warp_id, i, ma->SFR_id, ma->addrs[i]);
                     }
                 }
                 num_processed_bytes += sizeof(mem_access_t);
@@ -276,4 +291,6 @@ void nvbit_at_ctx_term(CUcontext ctx) {
         recv_thread_started = false;
         pthread_join(recv_thread, NULL);
     }
+
+    printf("\nnumber of synchronization operations encountered: %d\n", syn_ops_counter);
 }

@@ -36,6 +36,7 @@ typedef struct {
     int warp_id;
     int opcode_id;
     int is_shared_memory;
-    int32_t is_load;
+    int is_load;
+    int SFR_id;  // id of synchronization-free regions
     uint64_t addrs[32];
 } mem_access_t;

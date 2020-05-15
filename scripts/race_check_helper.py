@@ -48,21 +48,27 @@ class Thread:
         return "({} {} {} {} {})".format(self.cta_id_x, self.cta_id_y, self.cta_id_z, self.warp_id, self.lane_id)
 
 shared_mem = {} 
-global_mem = {}
+SFR_global_mem = {} # key: SFR id, val: global_mem (a dic of addr : Address)
 
 # read input and build dict
 for line in sys.stdin:
     temp = line[4:-1].split(",")
-    if (len(temp) != 7):  # skip unwanted output
+    if (len(temp) != 8):  # skip unwanted output
         continue
 
     addr = temp[-1]
     t = Thread(temp[1], temp[2], temp[3], temp[4], temp[5])
+    SFR_id = temp[-2]
 
-    if "#ld#" in line: # format: "#ld#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id, addr\n"
+    if "#ld#" in line: # format: "#ld#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id, SFR_id, addr\n"
         if (temp[0] == '1'): # shared memory
             continue # TODO: support shared memory
         else: # global memory
+            if SFR_id not in SFR_global_mem:
+                SFR_global_mem[SFR_id] = {}
+
+            global_mem = SFR_global_mem[SFR_id]
+
             if addr not in global_mem:
                 a = Address()
                 a.load.add(t) # add thread id to dict
@@ -71,10 +77,15 @@ for line in sys.stdin:
                 global_mem[addr].load.add(t)          
 
 
-    elif "#st#" in line: # format: "#st#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id, addr\n"
+    elif "#st#" in line: # format: "#st#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id, SFR_id, addr\n"
         if (temp[0] == '1'): # shared memory
             continue # TODO: support shared memory
         else:
+            if SFR_id not in SFR_global_mem:
+                SFR_global_mem[SFR_id] = {}
+
+            global_mem = SFR_global_mem[SFR_id]
+
             if addr not in global_mem:
                 a = Address()
                 a.store.add(t) # add thread id to dict
@@ -87,23 +98,24 @@ flag = False
 race_counter = 0
 
 # print warning
-for addr, addr_obj in global_mem.items():
-    if (len(addr_obj.load) > 1 and len(addr_obj.store) > 1) or \
-        (len(addr_obj.load) == 1 and len(addr_obj.store) == 1 and addr_obj.load != addr_obj.store):
-        print(bcolors.WARNING + "Warning! There may be a data race in address(Global): " + addr + " where:" + bcolors.ENDC)
-        race_counter += 1
-        print("\tLoad from threads: ", end="")
-        for l in addr_obj.load:
-            print(l, end=" ")
+for SFR_id, global_mem in SFR_global_mem.items():
+    for addr, addr_obj in global_mem.items():
+        if (len(addr_obj.load) > 1 and len(addr_obj.store) > 1) or \
+            (len(addr_obj.load) == 1 and len(addr_obj.store) == 1 and addr_obj.load != addr_obj.store):
+            print(bcolors.WARNING + "Warning! There may be a data race in address(Global, SFR id: " + SFR_id + "): " + addr + " where:" + bcolors.ENDC)
+            race_counter += 1
+            print("\tLoad from threads: ", end="")
+            for l in addr_obj.load:
+                print(l, end=" ")
 
-        print("")
+            print("")
 
-        print("\tStore from threads: ", end="")
-        for s in addr_obj.store:
-            print(s, end=" ")
+            print("\tStore from threads: ", end="")
+            for s in addr_obj.store:
+                print(s, end=" ")
 
-        print("\n")
-        flag = True
+            print("\n")
+            flag = True
 
 if not flag:
     print(bcolors.OKGREEN + "no data races found."+ bcolors.ENDC)

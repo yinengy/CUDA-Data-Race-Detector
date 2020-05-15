@@ -40,7 +40,9 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id,
                                                        uint64_t addr,
                                                        uint64_t pchannel_dev,                                                  
                                                        int32_t is_shared_memory,
-                                                       int32_t is_load) {
+                                                       int32_t is_load,
+                                                       uint64_t psyn_ops_counter) {
+    //NOTE: the way to use pred doesn't work on atomic operations
     if (!pred) {
         return;
     }
@@ -64,10 +66,24 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id,
     ma.opcode_id = opcode_id;
     ma.is_shared_memory = is_shared_memory;
     ma.is_load = is_load;
+    ma.SFR_id = *(int *)psyn_ops_counter;
 
     /* first active lane pushes information on the channel */
     if (first_laneid == laneid) {
         ChannelDev *channel_dev = (ChannelDev *)pchannel_dev;
         channel_dev->push(&ma, sizeof(mem_access_t));
     }
+}
+
+/* will increment syn_ops_counter by one 
+ * the counter will be used as an ID for code regions between synchronization operations
+ * which are also refered as synchronization-free regions (SFRs)
+ */
+extern "C" __device__ __noinline__ void instrument_syn(uint64_t psyn_ops_counter) {
+    if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+        atomicAdd((int *)psyn_ops_counter, 1);
+    }
+
+    // wait for other threads so can gurantee that the counter is updated after this function call
+    __syncthreads();
 }
