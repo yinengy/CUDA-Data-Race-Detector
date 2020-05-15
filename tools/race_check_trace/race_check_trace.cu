@@ -1,3 +1,13 @@
+/* 
+ * An NVBit tool, which will detect conflict memory access in the kernel.
+ * The raw output will be processed by a Pytyhon script
+ *
+ * The tool is based on thetool (mem_trace) in nvbit_release
+ * the original code is modified and extended to support the use of detecting data races
+ *
+ * Yineng Yan (yinengy@umich.edu), 2020
+ */
+
 /* Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -129,22 +139,27 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             }
 
             int opcode_id = opcode_to_id_map[instr->getOpcode()];
+            const char *shortOpcode = instr->getOpcodeShort();
+
+            // to see if it is a synchronization operation
+            bool is_syn_op = (strcmp(shortOpcode, "RED") == 0)   || // Atomic Memory Reduction Operation
+                             (strcmp(shortOpcode, "ATOM") == 0)  || // Atomic Operation on generic Memory
+                             (strcmp(shortOpcode, "ATOMS") == 0) || // Atomic Operation on Shared Memory
+                             (strcmp(shortOpcode, "MEMBAR") == 0);  // Memory Barrier
+            if (is_syn_op) {
+                // instrument after the syn op so all thread are ready
+                // then we can just update the counter by one
+                nvbit_insert_call(instr, "instrument_syn", IPOINT_AFTER);
+                nvbit_add_call_arg_const_val64(instr, (uint64_t)&syn_ops_counter);
+                continue; //skip the rest
+            } 
+
             /* iterate on the operands */
             for (int i = 0; i < instr->getNumOperands(); i++) {
                 /* get the operand "i" */
                 const Instr::operand_t *op = instr->getOperand(i);
-                const char *shortOpcode = instr->getOpcodeShort();
-
-                // to see if it is a synchronization operation
-                bool is_syn_op = strcmp(shortOpcode, "RED") == 0; 
-
-                if (is_syn_op) {
-                    // instrument after the syn op so all thread are ready
-                    // then we can just update the counter by one
-                    nvbit_insert_call(instr, "instrument_syn", IPOINT_AFTER);
-                    nvbit_add_call_arg_const_val64(instr, (uint64_t)&syn_ops_counter);
-                    break; // only instrument once
-                } else if (op->type == Instr::operandType::MREF) {
+            
+                if (op->type == Instr::operandType::MREF) {
                     /* insert call to the instrumentation function with its
                      * arguments */
                     nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);

@@ -1,3 +1,14 @@
+/* 
+ * An NVBit tool, which will detect conflict memory access in the kernel.
+ * The raw output will be processed by a Pytyhon script
+ *
+ * The tool is based on thetool (mem_trace) in nvbit_release
+ * the original code is modified and extended to support the use of detecting data races
+ *
+ * Yineng Yan (yinengy@umich.edu), 2020
+ */
+
+
 /* Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
