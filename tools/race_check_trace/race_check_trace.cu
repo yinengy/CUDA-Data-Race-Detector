@@ -247,6 +247,8 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid,
             while (recv_thread_receiving) {
                 pthread_yield();
             }
+
+            printf("#kernelends#\n");
         }
     }
 }
