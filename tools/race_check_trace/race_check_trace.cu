@@ -121,6 +121,23 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         uint32_t cnt = 0;
         /* iterate on all the static instructions in the function */
         for (auto instr : instrs) {
+            // check syn op first
+            const char *shortOpcode = instr->getOpcodeShort();
+
+            // to see if it is a synchronization operation
+            bool is_syn_op = (strcmp(shortOpcode, "RED") == 0)   || // Atomic Memory Reduction Operation
+                             (strcmp(shortOpcode, "ATOM") == 0)  || // Atomic Operation on generic Memory
+                             (strcmp(shortOpcode, "ATOMS") == 0) || // Atomic Operation on Shared Memory
+                             (strcmp(shortOpcode, "BAR") == 0) ||   // Barrier (e.g. __syncthreads())
+                             (strcmp(shortOpcode, "MEMBAR") == 0);  // Memory Barrier
+            if (is_syn_op) {
+                // instrument after the syn op so all thread are ready
+                // then we can just update the counter by one
+                nvbit_insert_call(instr, "instrument_syn", IPOINT_AFTER);
+                nvbit_add_call_arg_const_val64(instr, (uint64_t)&syn_ops_counter);
+                continue; //skip the rest
+            } 
+
             if (cnt < instr_begin_interval || cnt >= instr_end_interval ||
                 ((instr->getMemOpType()!=Instr::memOpType::GLOBAL
                     && instr->getMemOpType()!=Instr::memOpType::SHARED && instr->getMemOpType()!=Instr::memOpType::GENERIC))) {
@@ -139,20 +156,6 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             }
 
             int opcode_id = opcode_to_id_map[instr->getOpcode()];
-            const char *shortOpcode = instr->getOpcodeShort();
-
-            // to see if it is a synchronization operation
-            bool is_syn_op = (strcmp(shortOpcode, "RED") == 0)   || // Atomic Memory Reduction Operation
-                             (strcmp(shortOpcode, "ATOM") == 0)  || // Atomic Operation on generic Memory
-                             (strcmp(shortOpcode, "ATOMS") == 0) || // Atomic Operation on Shared Memory
-                             (strcmp(shortOpcode, "MEMBAR") == 0);  // Memory Barrier
-            if (is_syn_op) {
-                // instrument after the syn op so all thread are ready
-                // then we can just update the counter by one
-                nvbit_insert_call(instr, "instrument_syn", IPOINT_AFTER);
-                nvbit_add_call_arg_const_val64(instr, (uint64_t)&syn_ops_counter);
-                continue; //skip the rest
-            } 
 
             /* iterate on the operands */
             for (int i = 0; i < instr->getNumOperands(); i++) {
