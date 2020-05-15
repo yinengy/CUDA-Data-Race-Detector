@@ -34,7 +34,17 @@ case $1 in
     make --directory $tool_dir/$2
     ;;
 
-    "race_check")
+  "race_check")
+    chmod +x scripts/race_check_helper.py
+    # will combine with scripts/print_data_race_helper.py
+    make --directory $tool_dir/$1
+
+    make --directory $app_dir/$2
+
+    LD_PRELOAD=$tool_dir/$1/$1.so ./$app_dir/$2/run | scripts/race_check_helper.py
+    ;;
+  
+  "race_check_trace")
     chmod +x scripts/race_check_helper.py
     # will combine with scripts/print_data_race_helper.py
     make --directory $tool_dir/$1
