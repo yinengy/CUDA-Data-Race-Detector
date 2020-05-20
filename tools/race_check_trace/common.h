@@ -45,6 +45,8 @@ typedef struct {
     int cta_id_z;
     int warp_id;
     int opcode_id;
+    int func_id;
+    int inst_id;
     int is_shared_memory;
     int is_load;
     int SFR_id;  // id of synchronization-free regions

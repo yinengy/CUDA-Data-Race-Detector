@@ -48,6 +48,8 @@
 #include "common.h"
 
 extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id,
+                                                       int func_id,
+                                                       int inst_id,
                                                        uint64_t addr,
                                                        uint64_t pchannel_dev,                                                  
                                                        int32_t is_shared_memory,
@@ -75,6 +77,8 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id,
     ma.cta_id_z = cta.z;
     ma.warp_id = get_warpid();
     ma.opcode_id = opcode_id;
+    ma.func_id = func_id;
+    ma.inst_id = inst_id;
     ma.is_shared_memory = is_shared_memory;
     ma.is_load = is_load;
     ma.SFR_id = *(int *)psyn_ops_counter;
