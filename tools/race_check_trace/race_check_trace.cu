@@ -81,6 +81,9 @@ int verbose = 0;
 std::map<std::string, int> opcode_to_id_map;
 std::map<int, std::string> id_to_opcode_map;
 
+/* vector of func_name, index by func_id */
+std::vector<std::string> id_to_func_name;
+
 void nvbit_at_init() {
     setenv("CUDA_MANAGED_FORCE_DEVICE_ALLOC", "1", 1);
     GET_VAR_INT(
@@ -113,14 +116,28 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
             continue;
         }
         const std::vector<Instr *> &instrs = nvbit_get_instrs(ctx, f);
+        const char*func_name = nvbit_get_func_name(ctx, f);
         if (verbose) {
             printf("Inspecting function %s at address 0x%lx\n",
-                   nvbit_get_func_name(ctx, f), nvbit_get_func_addr(f));
+                   func_name, nvbit_get_func_addr(f));
         }
 
-        uint32_t cnt = 0;
+        /* insert function name into the vector*/
+        /* its index is func_id */
+        int func_id = id_to_func_name.size();
+        id_to_func_name.push_back(std::string(func_name));
+
+        uint32_t inst_id = 0;
+
+        /* tell python script the content of a function begins here*/
+        printf("#func_begin#\n");
+        printf("%s\n", func_name);
+
         /* iterate on all the static instructions in the function */
         for (auto instr : instrs) {
+            /* print SASS, which is used by python script*/
+            printf("%s\n", instr->getSass());
+
             // check syn op first
             const char *shortOpcode = instr->getOpcodeShort();
 
@@ -135,13 +152,14 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
                 // then we can just update the counter by one
                 nvbit_insert_call(instr, "instrument_syn", IPOINT_AFTER);
                 nvbit_add_call_arg_const_val64(instr, (uint64_t)&syn_ops_counter);
+                inst_id++;
                 continue; //skip the rest
             } 
 
-            if (cnt < instr_begin_interval || cnt >= instr_end_interval ||
+            if (inst_id < instr_begin_interval || inst_id >= instr_end_interval ||
                 ((instr->getMemOpType()!=Instr::memOpType::GLOBAL
                     && instr->getMemOpType()!=Instr::memOpType::SHARED && instr->getMemOpType()!=Instr::memOpType::GENERIC))) {
-                cnt++;
+                inst_id++;
                 continue;
             }
             if (verbose) {
@@ -170,6 +188,10 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
                     nvbit_add_call_arg_pred_val(instr);
                     /* opcode id */
                     nvbit_add_call_arg_const_val32(instr, opcode_id);
+                    /* func id */
+                    nvbit_add_call_arg_const_val32(instr, func_id);    
+                    /* inst id */
+                    nvbit_add_call_arg_const_val32(instr, inst_id); 
                     /* memory reference 64 bit address */
                     nvbit_add_call_arg_mref_addr64(instr);
                     /* add pointer to channel_dev*/
@@ -181,8 +203,11 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
                     nvbit_add_call_arg_const_val64(instr, (uint64_t)&syn_ops_counter);
                 }
             }
-            cnt++;
+            inst_id++;
         }
+
+        /* tell python script the content of a function ends here*/
+        printf("#func_end#\n");
     }
 }
 
@@ -280,16 +305,18 @@ void *recv_thread_fun(void *) {
                 if (ma->is_load) {
                     for (int i = 0; i < 32; i++) {
                         if (ma->addrs[i] == 0) continue;
-                        printf("#ld#%d,%d,%d,%d,%d,%d,%d,0x%016lx\n",
+                        printf("#ld#%d,%d,%d,%d,%d,%d,%d,%d,%d,0x%016lx\n",
                             ma->is_shared_memory,  ma->cta_id_x,
-                            ma->cta_id_y, ma->cta_id_z, ma->warp_id, i, ma->SFR_id, ma->addrs[i]);
+                            ma->cta_id_y, ma->cta_id_z, ma->warp_id, i, ma->func_id, ma->inst_id,
+                            ma->SFR_id, ma->addrs[i]);
                     }
                 } else {
                     for (int i = 0; i < 32; i++) {
                         if (ma->addrs[i] == 0) continue;
-                        printf("#st#%d,%d,%d,%d,%d,%d,%d,0x%016lx\n",
+                        printf("#st#%d,%d,%d,%d,%d,%d,%d,%d,%d,0x%016lx\n",
                             ma->is_shared_memory,  ma->cta_id_x,
-                            ma->cta_id_y, ma->cta_id_z, ma->warp_id, i, ma->SFR_id, ma->addrs[i]);
+                            ma->cta_id_y, ma->cta_id_z, ma->warp_id, i, ma->func_id, ma->inst_id,
+                            ma->SFR_id, ma->addrs[i]);
                     }
                 }
                 num_processed_bytes += sizeof(mem_access_t);
