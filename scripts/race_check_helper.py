@@ -298,7 +298,7 @@ def check_result(SFR_shared_mem, SFR_global_mem, GLOBAL_mem):
         print(bcolors.WARNING + "{} of them are intra block shared memory data races in this kernel lunches".format(len(intra_shared_races)) + bcolors.ENDC)
         print(bcolors.WARNING + "{} of them are intra block global memory data races in this kernel lunches".format(len(intra_global_races)) + bcolors.ENDC)
         print(bcolors.WARNING + "{} of them are inter block global memory data races in this kernel lunches".format(len(inter_global_races)) + bcolors.ENDC)
-        
+    print()
 
 if __name__ == "__main__":
     process_message()
