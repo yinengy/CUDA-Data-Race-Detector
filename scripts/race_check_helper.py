@@ -7,11 +7,13 @@
 # A warning will be printed
 #
 #
-# Yineng Yan (yinengy@umich.edu, 2020
+# Yineng Yan (yinengy@umich.edu), 2020
 
 import sys
 
 kernel_counter = 0
+
+functions = []
 
 class bcolors:
     HEADER = '\033[95m'
@@ -84,16 +86,28 @@ class Block:
     def __str__(self):
         return "({} {} {})".format(self.cta_id_x, self.cta_id_y, self.cta_id_z)
 
-def process_newline():
+class Function:
+    def __init__(self, func_name):
+        self.func_name = func_name
+        self.insts = []
+
+
+def process_message():
+    global functions
+
     SFR_shared_mem = {} # key: SFR, val: shared_mem (a dic of addr : Address)
     SFR_global_mem = {} # key: SFR, val: global_mem (a dic of addr : Address)
 
     GLOBAL_mem = {} # key: addr, val: Address (a set of Block)
 
+    # flag and counter for reading function assembly
+    read_func = False
+    read_func_name = False
+
     # read input and build dict
     for line in sys.stdin:
-        temp = line[4:-1].split(",")
-        if line[:-1] == "#kernelends#":
+        # handle special message (kernel ends signal and function assembly)
+        if line.strip('\n') == "#kernelends#":
             check_result(SFR_shared_mem, SFR_global_mem, GLOBAL_mem)
             # do a new loop
             SFR_shared_mem = {} # key: SFR, val: shared_mem (a dic of addr : Address)
@@ -101,7 +115,25 @@ def process_newline():
 
             GLOBAL_mem = {} # key: addr, val: Address (a set of Block)
             continue
-        elif (len(temp) != 8):  # skip unwanted output
+        elif line.strip('\n') == "#func_begin#": # begins reading functions
+            read_func = True
+            continue
+        elif line.strip('\n') == "#func_end#": # finish reading functions
+            read_func = False
+            read_func_name = False
+            continue
+        elif read_func and (not read_func_name): # if haven't read function name
+            functions.append(Function(line.strip('\n')))
+            read_func_name = True
+            continue
+        elif read_func:
+            functions[-1].insts.append(line.strip('\n'))
+            continue
+        
+        # handle load and store message
+        temp = line.strip('\n')[4:].split(",")
+
+        if (len(temp) != 10):  # skip unwanted output
             continue
 
         addr = temp[-1]
@@ -109,7 +141,7 @@ def process_newline():
         s = SFR(temp[1], temp[2], temp[3], temp[-2])
         b = Block(temp[1], temp[2], temp[3])
 
-        if "#ld#" in line: # format: "#ld#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id, SFR_id, addr\n"
+        if "#ld#" in line: # format: "#ld#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id, func_id, inst_id, SFR_id, addr\n"
             if (temp[0] == '1'): # shared memory
                 if s not in SFR_shared_mem:
                     SFR_shared_mem[s] = {}
@@ -143,7 +175,7 @@ def process_newline():
                 a.load_dic[b].add(t) # add thread id to dict
 
 
-        elif "#st#" in line: # format: "#st#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id, SFR_id, addr\n"
+        elif "#st#" in line: # format: "#st#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id,func_id, inst_id, SFR_id, addr\n"
             if (temp[0] == '1'): # shared memory
                 if s not in SFR_shared_mem:
                     SFR_shared_mem[s] = {}
@@ -264,4 +296,5 @@ def check_result(SFR_shared_mem, SFR_global_mem, GLOBAL_mem):
         print(bcolors.WARNING + "{} of them are inter block global memory data races in this kernel lunches".format(inter_block_global_memory_counter) + bcolors.ENDC)
         
 
-process_newline()
+if __name__ == "__main__":
+    process_message()
