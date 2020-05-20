@@ -28,12 +28,32 @@ class bcolors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
 
+
 class Address:
     def __init__(self):
-        self.load = set() # set of thread id that read from this address
-        self.store = set() # set of thread id that write to this address
-        self.load_dic = {}
-        self.store_dic = {}
+        self.load = set() # set of Thread(or Block for inter block races) that read from this address
+        self.store = set() # set of Thread(or Block for inter block races) that write to this address
+        self.insts = set() # set of Inst wrt to Thread in self.load and self.store
+
+
+class instruction:
+    def __init__(self, func_id, inst_id):
+        self.func_id = func_id
+        self.inst_id = inst_id
+    
+    def __hash__(self):
+        return hash((self.func_id, self.inst_id))
+    
+    def __eq__(self, other):
+        return self.func_id == other.func_id and \
+        self.inst_id == other.inst_id
+
+    def __str__(self):
+        # at function name, instruction SASS)
+        func = functions[self.func_id]
+
+        return "at {}, {}".format(func.func_name, func.insts[self.inst_id][:-2])
+
 
 # Thread in a block
 class Thread:
@@ -49,7 +69,9 @@ class Thread:
         self.lane_id == other.lane_id
 
     def __str__(self):
+        # (warp ID, lane ID)
         return "({} {})".format(self.warp_id, self.lane_id)
+
 
 # SFR in a block
 class SFR:
@@ -69,6 +91,7 @@ class SFR:
         self.SFR_id == other.SFR_id
 
     def __str__(self):
+        # "Block_id: (CTA.x CTA.y CTA.z), SFR_id: SFR ID"
         return "Block_id: ({} {} {}), SFR_id: {}".format(self.cta_id_x, self.cta_id_y, self.cta_id_z, self.SFR_id)
 
 
@@ -87,7 +110,9 @@ class Block:
         self.cta_id_z == other.cta_id_z
 
     def __str__(self):
+        # (CTA.x CTA.y CTA.z)
         return "({} {} {})".format(self.cta_id_x, self.cta_id_y, self.cta_id_z)
+
 
 class Function:
     def __init__(self, func_name):
@@ -98,10 +123,10 @@ class Function:
 def process_message():
     global functions
 
-    SFR_shared_mem = {} # key: SFR, val: shared_mem (a dic of addr : Address)
-    SFR_global_mem = {} # key: SFR, val: global_mem (a dic of addr : Address)
+    SFR_shared_mem = {} # key: SFR, val: shared_mem (a dic of addr : Address (has two set of Thread))
+    SFR_global_mem = {} # key: SFR, val: global_mem (a dic of addr : Address (has two set of Thread))
 
-    GLOBAL_mem = {} # key: addr, val: Address (a set of Block)
+    GLOBAL_mem = {} # key: addr, val: Address (has two set of Block)
 
     # flag and counter for reading function assembly
     read_func = False
@@ -134,6 +159,7 @@ def process_message():
             continue
         
         # handle load and store message
+        # format: "#ld#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id, func_id, inst_id, SFR_id, addr\n"
         temp = line.strip('\n')[4:].split(",")
 
         if (len(temp) != 10):  # skip unwanted output
@@ -143,8 +169,9 @@ def process_message():
         t = Thread(temp[4], temp[5])
         s = SFR(temp[1], temp[2], temp[3], temp[-2])
         b = Block(temp[1], temp[2], temp[3])
+        inst = instruction(int(temp[6]), int(temp[7]))
 
-        if "#ld#" in line: # format: "#ld#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id, func_id, inst_id, SFR_id, addr\n"
+        if "#ld#" in line: 
             if (temp[0] == '1'): # shared memory
                 if s not in SFR_shared_mem:
                     SFR_shared_mem[s] = {}
@@ -154,6 +181,8 @@ def process_message():
                 if addr not in shared_mem:
                     shared_mem[addr] = Address()
                 shared_mem[addr].load.add(t) 
+                # add inst to inst set
+                shared_mem[addr].insts.add(inst)
 
             else: # global memory
                 # intra block
@@ -163,20 +192,19 @@ def process_message():
                 global_mem = SFR_global_mem[s]
 
                 if addr not in global_mem:
-                    a = Address()
-                    global_mem[addr] = a
+                    global_mem[addr] = Address()
 
-                global_mem[addr].load.add(t)    
+                global_mem[addr].load.add(t) 
+                # add inst to inst set
+                global_mem[addr].insts.add(inst)    
 
                 # inter block
                 if addr not in GLOBAL_mem:
                     GLOBAL_mem[addr] = Address()
 
-                a = GLOBAL_mem[addr]
-                if (b not in a.load_dic):
-                    a.load_dic[b] = set()
-                a.load_dic[b].add(t) # add thread id to dict
-
+                GLOBAL_mem[addr].load.add(b)  # add block rather than thread
+                # add inst to inst set
+                GLOBAL_mem[addr].insts.add(inst) 
 
         elif "#st#" in line: # format: "#st#is_shared_memory, cta_id_x, cta_id_y, cta_id_z, warp_id, lane_id,func_id, inst_id, SFR_id, addr\n"
             if (temp[0] == '1'): # shared memory
@@ -188,6 +216,8 @@ def process_message():
                 if addr not in shared_mem:
                     shared_mem[addr] = Address()
                 shared_mem[addr].store.add(t) 
+                # add inst to inst set
+                shared_mem[addr].insts.add(inst)
             else:
                 # intra block
                 if s not in SFR_global_mem:
@@ -196,107 +226,78 @@ def process_message():
                 global_mem = SFR_global_mem[s]
 
                 if addr not in global_mem:
-                    a = Address()
-                    global_mem[addr] = a
+                    global_mem[addr] = Address()
 
-                global_mem[addr].store.add(t)    
+                global_mem[addr].store.add(t)  
+                # add inst to inst set
+                global_mem[addr].insts.add(inst)  
 
                 # inter block
                 if addr not in GLOBAL_mem:
                     GLOBAL_mem[addr] = Address()
 
-                a = GLOBAL_mem[addr]
-                if (b not in a.store_dic):
-                    a.store_dic[b] = set()
-                a.store_dic[b].add(t) # add thread id to dict
+                GLOBAL_mem[addr].store.add(b)  # add block rather than thread
+                # add inst to inst set
+                GLOBAL_mem[addr].insts.add(inst) 
+
 
 def check_result(SFR_shared_mem, SFR_global_mem, GLOBAL_mem):
     global kernel_counter
     kernel_counter += 1
 
-    race_counter = 0
-
-    intra_block_shared_memory_counter = 0
-    intra_block_global_memory_counter = 0
     inter_block_global_memory_counter = 0
 
     # intra block shared memory
+    intra_shared_races = set()
+
     for SFR, shared_mem in SFR_shared_mem.items():
         for addr, addr_obj in shared_mem.items():
             if (len(addr_obj.store) > 1) or (len(addr_obj.store) == 1 and \
                 (len(addr_obj.load) >= 1 and addr_obj.load != addr_obj.store)) :
-                print(bcolors.WARNING + "Warning! There may be a data race in address(SHARED, " + str(SFR) + "): " + addr + " where:" + bcolors.ENDC)
-                race_counter += 1
-                intra_block_shared_memory_counter += 1
-                print("\tLoad from threads: ", end="")
-                for l in addr_obj.load:
-                    print(l, end=" ")
+                intra_shared_races.add(frozenset(addr_obj.insts))
 
-                print("")
-
-                print("\tStore from threads: ", end="")
-                for s in addr_obj.store:
-                    print(s, end=" ")
-
-                print("\n")
+    # report races
+    for race in intra_shared_races:
+        print(bcolors.WARNING + "Warning! There may be a intra block shared memory data race involving following instructions:" + bcolors.ENDC)
+        for inst in race:
+            print(str(inst))
+                
 
     # intra block global memory
+    intra_global_races = set()
     for SFR, global_mem in SFR_global_mem.items():
         for addr, addr_obj in global_mem.items():
             if (len(addr_obj.store) > 1) or (len(addr_obj.store) == 1 and \
                 (len(addr_obj.load) >= 1 and addr_obj.load != addr_obj.store)) :
-                print(bcolors.WARNING + "Warning! There may be a data race in address(GLOBAL, " + str(SFR) + "): " + addr + " where:" + bcolors.ENDC)
-                race_counter += 1
-                intra_block_global_memory_counter += 1
-                print("\tLoad from threads: ", end="")
-                for l in addr_obj.load:
-                    print(l, end=" ")
+                intra_global_races.add(frozenset(addr_obj.insts))
 
-                print("")
-
-                print("\tStore from threads: ", end="")
-                for s in addr_obj.store:
-                    print(s, end=" ")
-
-                print("\n")
+    # report races
+    for race in intra_global_races:
+        print(bcolors.WARNING + "Warning! There may be a intra block global memory data race involving following instructions:" + bcolors.ENDC)
+        for inst in race:
+            print(inst)
 
     # inter block global memory
+    inter_global_races = set()
     for addr, addr_obj in GLOBAL_mem.items():
-        if (len(addr_obj.store_dic) > 1) or (len(addr_obj.store_dic) == 1 and \
-            (len(addr_obj.load_dic) >= 1 and (list(addr_obj.store_dic.keys())[0] not in addr_obj.load_dic))) :
-            print(bcolors.WARNING + "Warning! There may be a data race in address(GLOBAL): " + addr + " where:" + bcolors.ENDC)
-            race_counter += 1
-            inter_block_global_memory_counter += 1
-            print("\tLoad from blocks: ", end="")
-            for block, thread in addr_obj.load_dic.items():
-                print(block, end="-")
-                print("[Thread ", end="")
-                for t in thread:
-                    print(t, end=" ")
-                print("]")
-                print(" "*23, end="")
+        if (len(addr_obj.store) > 1) or (len(addr_obj.store) == 1 and \
+            (len(addr_obj.load) >= 1 and addr_obj.load != addr_obj.store)) :
+            inter_global_races.add(frozenset(addr_obj.insts))
 
-            print("\n")
+    # report races
+    for race in inter_global_races:
+        print(bcolors.WARNING + "Warning! There may be a inter block global memory data race involving following instructions:" + bcolors.ENDC)
+        for inst in race:
+            print(inst)
 
-            print("\tStore from blocks: ", end="")
-            for block, thread in addr_obj.store_dic.items():
-                print(block, end="-")
-                print("[Thread ", end="")
-                for t in thread:
-                    print(t, end=" ")
-                print("]")
-                print(" "*23, end="")
-
-            print("\n")
-
-
+    race_counter = len(intra_shared_races) + len(intra_global_races) + len(inter_global_races)
     if race_counter == 0:
         print(bcolors.OKGREEN + "no data races found in {}th kernel lunches.".format(kernel_counter) + bcolors.ENDC)
     else:
         print(bcolors.WARNING + "There are {} potential data races in {}th kernel lunches".format(race_counter, kernel_counter) + bcolors.ENDC)
-        print(bcolors.WARNING + "{} of them are intra block shared memory data races in this kernel lunches".format(intra_block_shared_memory_counter) + bcolors.ENDC)
-        print(bcolors.WARNING + "{} of them are intra block global memory data races in this kernel lunches".format(intra_block_global_memory_counter) + bcolors.ENDC)
-        print(bcolors.WARNING + "{} of them are inter block global memory data races in this kernel lunches".format(inter_block_global_memory_counter) + bcolors.ENDC)
+        print(bcolors.WARNING + "{} of them are intra block shared memory data races in this kernel lunches".format(len(intra_shared_races)) + bcolors.ENDC)
+        print(bcolors.WARNING + "{} of them are intra block global memory data races in this kernel lunches".format(len(intra_global_races)) + bcolors.ENDC)
+        print(bcolors.WARNING + "{} of them are inter block global memory data races in this kernel lunches".format(len(inter_global_races)) + bcolors.ENDC)
         
 
 if __name__ == "__main__":
