@@ -6,9 +6,9 @@
 # Will check if there are conflicting memory accesses (data races)
 # A warning will be printed
 #
-# the difference of this script and race_check_helper_memaddr.py is that
-# race_check_helper_memaddr.py reports data race with respect to memory address
-# while this script reports data race with respect to instructions
+# the difference of this script and race_check_helper.py is that
+# this script reports data race with respect to memory address
+# while race_check_helper.py reports data race with respect to instructions
 #
 # Yineng Yan (yinengy@umich.edu), 2020
 
