@@ -135,7 +135,7 @@ def process_message():
     # read input and build dict
     for line in sys.stdin:
         # handle special message (kernel ends signal and function assembly)
-        if not read_func and line[0] != '#': # all message begin with #
+        if line[0] != '#': # all message begin with #
             continue
         elif line.strip('\n') == "#kernelends#":
             check_result(SFR_shared_mem, SFR_global_mem, GLOBAL_mem)
@@ -145,19 +145,15 @@ def process_message():
 
             GLOBAL_mem = {} # key: addr, val: Address (a set of Block)
             continue
-        elif line.strip('\n') == "#func_begin#": # begins reading functions
+        elif line[:12] == "#func_begin#": # begins reading functions
             read_func = True
+            functions.append(Function(line.strip('\n')[12:]))
             continue
         elif line.strip('\n') == "#func_end#": # finish reading functions
             read_func = False
-            read_func_name = False
             continue
-        elif read_func and (not read_func_name): # if haven't read function name
-            functions.append(Function(line.strip('\n')))
-            read_func_name = True
-            continue
-        elif read_func:
-            functions[-1].insts.append(line.strip('\n'))
+        elif read_func and line[:6] == "#SASS#":
+            functions[-1].insts.append(line.strip('\n')[6:])
             continue
         
         # handle load and store message
@@ -260,9 +256,9 @@ def check_result(SFR_shared_mem, SFR_global_mem, GLOBAL_mem):
 
     # report races
     for race in intra_shared_races:
-        print(bcolors.WARNING + "Warning! There may be a intra block shared memory data race involving following instructions:" + bcolors.ENDC)
+        print(bcolors.WARNING + "Warning! There may be an intra block shared memory data race involving following instructions:" + bcolors.ENDC)
         for inst in race:
-            print(str(inst))
+            print(inst)
                 
 
     # intra block global memory
@@ -275,7 +271,7 @@ def check_result(SFR_shared_mem, SFR_global_mem, GLOBAL_mem):
 
     # report races
     for race in intra_global_races:
-        print(bcolors.WARNING + "Warning! There may be a intra block global memory data race involving following instructions:" + bcolors.ENDC)
+        print(bcolors.WARNING + "Warning! There may be an intra block global memory data race involving following instructions:" + bcolors.ENDC)
         for inst in race:
             print(inst)
 
@@ -288,18 +284,18 @@ def check_result(SFR_shared_mem, SFR_global_mem, GLOBAL_mem):
 
     # report races
     for race in inter_global_races:
-        print(bcolors.WARNING + "Warning! There may be a inter block global memory data race involving following instructions:" + bcolors.ENDC)
+        print(bcolors.WARNING + "Warning! There may be an inter block global memory data race involving following instructions:" + bcolors.ENDC)
         for inst in race:
             print(inst)
 
     race_counter = len(intra_shared_races) + len(intra_global_races) + len(inter_global_races)
     if race_counter == 0:
-        print(bcolors.OKGREEN + "no data races found in {}th kernel lunches.".format(kernel_counter) + bcolors.ENDC)
+        print(bcolors.OKGREEN + "no data race is found in the {}th execution of kernel.".format(kernel_counter) + bcolors.ENDC)
     else:
-        print(bcolors.WARNING + "There are {} potential data races in {}th kernel lunches".format(race_counter, kernel_counter) + bcolors.ENDC)
-        print(bcolors.WARNING + "{} of them are intra block shared memory data races in this kernel lunches".format(len(intra_shared_races)) + bcolors.ENDC)
-        print(bcolors.WARNING + "{} of them are intra block global memory data races in this kernel lunches".format(len(intra_global_races)) + bcolors.ENDC)
-        print(bcolors.WARNING + "{} of them are inter block global memory data races in this kernel lunches".format(len(inter_global_races)) + bcolors.ENDC)
+        print(bcolors.WARNING + "There are {} potential data races in the {}th execution of kernel.".format(race_counter, kernel_counter) + bcolors.ENDC)
+        print(bcolors.WARNING + "{} of them are intra block shared memory data races.".format(len(intra_shared_races)) + bcolors.ENDC)
+        print(bcolors.WARNING + "{} of them are intra block global memory data races.".format(len(intra_global_races)) + bcolors.ENDC)
+        print(bcolors.WARNING + "{} of them are inter block global memory data races.".format(len(inter_global_races)) + bcolors.ENDC)
     print()
 
 if __name__ == "__main__":

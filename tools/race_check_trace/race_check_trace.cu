@@ -130,13 +130,12 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         uint32_t inst_id = 0;
 
         /* tell python script the content of a function begins here*/
-        printf("#func_begin#\n");
-        printf("%s\n", func_name);
+        printf("\n#func_begin#%s\n", func_name);
 
         /* iterate on all the static instructions in the function */
         for (auto instr : instrs) {
             /* print SASS, which is used by python script*/
-            printf("%s\n", instr->getSass());
+            printf("\n#SASS#%s\n", instr->getSass());
 
             // check syn op first
             const char *shortOpcode = instr->getOpcodeShort();
@@ -207,7 +206,7 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
         }
 
         /* tell python script the content of a function ends here*/
-        printf("#func_end#\n");
+        printf("\n#func_end#\n");
     }
 }
 
@@ -276,7 +275,7 @@ void nvbit_at_cuda_event(CUcontext ctx, int is_exit, nvbit_api_cuda_t cbid,
                 pthread_yield();
             }
 
-            printf("#kernelends#\n");
+            printf("\n#kernelends#\n");
         }
     }
 }
@@ -305,7 +304,7 @@ void *recv_thread_fun(void *) {
                 if (ma->is_load) {
                     for (int i = 0; i < 32; i++) {
                         if (ma->addrs[i] == 0) continue;
-                        printf("#ld#%d,%d,%d,%d,%d,%d,%d,%d,%d,0x%016lx\n",
+                        printf("\n#ld#%d,%d,%d,%d,%d,%d,%d,%d,%d,0x%016lx\n",
                             ma->is_shared_memory,  ma->cta_id_x,
                             ma->cta_id_y, ma->cta_id_z, ma->warp_id, i, ma->func_id, ma->inst_id,
                             ma->SFR_id, ma->addrs[i]);
@@ -313,7 +312,7 @@ void *recv_thread_fun(void *) {
                 } else {
                     for (int i = 0; i < 32; i++) {
                         if (ma->addrs[i] == 0) continue;
-                        printf("#st#%d,%d,%d,%d,%d,%d,%d,%d,%d,0x%016lx\n",
+                        printf("\n#st#%d,%d,%d,%d,%d,%d,%d,%d,%d,0x%016lx\n",
                             ma->is_shared_memory,  ma->cta_id_x,
                             ma->cta_id_y, ma->cta_id_z, ma->warp_id, i, ma->func_id, ma->inst_id,
                             ma->SFR_id, ma->addrs[i]);
