@@ -135,7 +135,9 @@ def process_message():
     # read input and build dict
     for line in sys.stdin:
         # handle special message (kernel ends signal and function assembly)
-        if line.strip('\n') == "#kernelends#":
+        if not read_func and line[0] != '#': # all message begin with #
+            continue
+        elif line.strip('\n') == "#kernelends#":
             check_result(SFR_shared_mem, SFR_global_mem, GLOBAL_mem)
             # do a new loop
             SFR_shared_mem = {} # key: SFR, val: shared_mem (a dic of addr : Address)
