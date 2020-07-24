@@ -128,14 +128,10 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
                 continue; //skip the rest
             } 
 
-            if (inst_id < instr_begin_interval || inst_id >= instr_end_interval ||
-                ((instr->getMemOpType()!=Instr::memOpType::GLOBAL
-                    && instr->getMemOpType()!=Instr::memOpType::SHARED && instr->getMemOpType()!=Instr::memOpType::GENERIC))) {
+            if ((instr->getMemOpType()!=Instr::memOpType::GLOBAL
+                    && instr->getMemOpType()!=Instr::memOpType::SHARED && instr->getMemOpType()!=Instr::memOpType::GENERIC)) {
                 inst_id++;
                 continue;
-            }
-            if (verbose) {
-                instr->printDecoded();
             }
 
             if (opcode_to_id_map.find(instr->getOpcode()) ==
@@ -147,6 +143,8 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
 
             int opcode_id = opcode_to_id_map[instr->getOpcode()];
 
+            bool is_GENERIC = instr->getMemOpType()==Instr::memOpType::GENERIC;
+
             /* iterate on the operands */
             for (int i = 0; i < instr->getNumOperands(); i++) {
                 /* get the operand "i" */
@@ -155,7 +153,11 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
                 if (op->type == Instr::operandType::MREF) {
                     /* insert call to the instrumentation function with its
                      * arguments */
-                    nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
+                    if (is_GENERIC) {
+                        nvbit_insert_call(instr, "instrument_gen_mem", IPOINT_BEFORE);
+                    } else {
+                        nvbit_insert_call(instr, "instrument_mem", IPOINT_BEFORE);
+                    }
                     /* predicate value */
                     nvbit_add_call_arg_pred_val(instr);
                     /* opcode id */
@@ -169,10 +171,16 @@ void instrument_function_if_needed(CUcontext ctx, CUfunction func) {
                     /* add pointer to channel_dev*/
                     nvbit_add_call_arg_const_val64(instr,
                                                    (uint64_t)&channel_dev);
-                    // TODO: need to consider the case that memOpType is GENERIC
-                    nvbit_add_call_arg_const_val32(instr, instr->getMemOpType()==Instr::memOpType::SHARED);
+                    /* insert base address to predict Generic pointer at run time */
+                    if (is_GENERIC) {
+                        nvbit_add_call_arg_const_val64(instr, nvbit_get_shmem_base_addr(ctx));
+                        nvbit_add_call_arg_const_val64(instr, nvbit_get_local_mem_base_addr(ctx));
+                    } else {
+                        nvbit_add_call_arg_const_val32(instr, instr->getMemOpType()==Instr::memOpType::SHARED);
+                    }                               
                     nvbit_add_call_arg_const_val32(instr, instr->isLoad());
                     nvbit_add_call_arg_const_val64(instr, (uint64_t)syn_ops_counter);
+
                 }
             }
             inst_id++;

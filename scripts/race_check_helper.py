@@ -18,7 +18,7 @@ kernel_counter = 0
 
 functions = []
 
-OUTPUT_ID_ONLY = False
+OUTPUT_ID_ONLY = True
 OUTPUT_VERBOSE = True
 
 class bcolors:
