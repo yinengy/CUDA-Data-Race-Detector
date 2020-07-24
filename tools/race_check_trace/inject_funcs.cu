@@ -32,6 +32,9 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id,
         return;
     }
 
+    int block_id = blockIdx.x + blockIdx.y * gridDim.x +
+                   gridDim.x * gridDim.y * blockIdx.z;
+
     int active_mask = ballot(1);
     const int laneid = get_laneid();
     const int first_laneid = __ffs(active_mask) - 1;
@@ -43,17 +46,14 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id,
         ma.addrs[i] = shfl(addr, i);
     }
 
-    int4 cta = get_ctaid();
-    ma.cta_id_x = cta.x;
-    ma.cta_id_y = cta.y;
-    ma.cta_id_z = cta.z;
+    ma.block_id = block_id;
     ma.warp_id = get_warpid();
     ma.opcode_id = opcode_id;
     ma.func_id = func_id;
     ma.inst_id = inst_id;
     ma.is_shared_memory = is_shared_memory;
     ma.is_load = is_load;
-    ma.SFR_id = *(int *)psyn_ops_counter;
+    ma.SFR_id = ((int *)psyn_ops_counter)[block_id];
 
     /* first active lane pushes information on the channel */
     if (first_laneid == laneid) {
@@ -67,10 +67,12 @@ extern "C" __device__ __noinline__ void instrument_mem(int pred, int opcode_id,
  * which are also refered as synchronization-free regions (SFRs)
  */
 extern "C" __device__ __noinline__ void instrument_syn(uint64_t psyn_ops_counter) {
+    int block_id = blockIdx.x + blockIdx.y * gridDim.x + gridDim.x * gridDim.y * blockIdx.z;
     if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
-        atomicAdd((int *)psyn_ops_counter, 1);
+       ((int *)psyn_ops_counter)[block_id] += 1;
     }
 
     // wait for other threads so can gurantee that the counter is updated after this function call
     __syncthreads();
+    
 }
