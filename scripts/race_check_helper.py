@@ -52,7 +52,7 @@ class instruction:
         # at function name, instruction SASS)
         func = functions[self.func_id]
 
-        return "at {}, line {}, {}".format(func.func_name, self.inst_id, func.insts[self.inst_id][:-2])
+        return "{},{}".format(self.func_id, self.inst_id)
 
 
 # Thread in a block
