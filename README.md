@@ -3,7 +3,9 @@ A dynamic data race detector for CUDA programs
 
 ## Environment
 
-[NVBit 3.1](https://github.com/NVlabs/NVBit) is the instrumentation framework used by this tool.
+[NVBit 1.3.1](https://github.com/NVlabs/NVBit) is the instrumentation framework used by this tool.
+
+NOTE: Since NVBit changes its API several times, you should use the specific version rather than its newest release.
 
 Put nvbit_release, test-apps at the root of the repo. (or modify app_dir and tool_dir in util.sh)
 
